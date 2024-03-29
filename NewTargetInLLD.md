@@ -27,6 +27,9 @@ Simply said, all you need to do to add a new machine target to lld is implement 
 
 But before implementing the beforementioned class, we should probably define target relocations. This is done by adding a def file with target's relocation type names with its values to **llvm/include/llvm/BinaryFormat/ELFRelocs**. Example:
 
+<div align="center">
+  <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/reloc-def-riscv2.png?raw=true" />
+</div>
 
 
 
