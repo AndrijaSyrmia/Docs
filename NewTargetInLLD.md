@@ -19,13 +19,13 @@ In this blog we'll cover a method to add new **ELF Machine Targets** to **lld**,
 
 ## Why LLD
 
-So the first question that comes to me, is why should we use lld when we have gnu linkers (bfd and gold) that are working fine. What people like to emphasize the most is lld's speed. On average lld runs twice as fast as the GNU gold linker, but it tends to use more memory. It is small, it's source code is several times smaller in term of code line count. But what I find to be most helpful for developers are more flexible data structures and algorithms then on gnu's gold linker. The code is also easier to understand then in gold, so it is easier for developers to work on it further. Lastly, it works good with clang as clang can generate bitcode object files which can be then sent to lld to perform link time optimizations on whole programs.
+So the first question that comes to me, is why should we use lld when we have gnu linkers (bfd and gold) that are working fine. What people like to emphasize the most is lld's speed. On average lld runs twice as fast as the GNU gold linker, but it tends to use more memory. It is small, it's source code is several times smaller in term of code line count. But what I find to be most helpful for developers are more flexible data structures and algorithms then on gnu's gold linker. The code is also easier to understand then in gold, so it is easier for developers to work on it further. Lastly, it works good with clang as clang can generate bitcode object files which can be then sent to lld to perform link time optimizations on whole programs. [[1]](#useful-links-and-sources)
 
 I hope that this explains the whys behind lld's popularity.
 
 ## Useful structures in LLD
 
-In this section, I'll briefly describe structures in lld that were useful to me, when it comes to implementing a new ELF Machine Target.
+In this section, I'll briefly describe structures in lld that were useful to me, when it comes to implementing a new ELF Machine Target. [[2]](#useful-links-and-sources)
 - ```InputSection``` - represents a section from an object file or a synthetic one that should be somehow put in the output file or discarded. One can easily traverse its relocations and access its data.
 - ```OutputSection``` - represents a section in an output file containing ```InputSection```s from various sources.
 - ```Symbol``` - represents a symbol from an object file, archive or linker defined symbols.
@@ -206,7 +206,7 @@ There is one more specific feature that is not mentioned here, ```calcEFlags```,
 
 Just like there is a bunch of various compiler optimizations, so there are some linker ones. One of these optimizations are called relaxations. Their goal is to scan the output program and see if some instructions can be compacted (e.g. 32bit instruction to 16bit one), or if some instruction groups can be replaced by other shorter and/or faster groups (e.g. load the highest 20 bits, then add the lowest 12, can be replaced by just loading the whole value if the proper conditions are met). This cannot be done during compilation, as the compiler doesn't know the layout of the program, nor it knows what are the values of all the symbols and where they originate from.
 
-In lld there is a couple of ways to achieve this. The first one is by using relocation expressions (custom or already present ones). An example of these kind of relaxations would be relaxations of **TLS** access models. Shortly, **TLS** has several access models, **General Dynamic**, **Local Dynamic**, **Initial Executable** and **Local Executable**, where **Global Dynamic** is the least optimized one and the **Local Executable** is the most optimized one. **lld** itself can already determine whether access models can be relaxed in the ```handleTlsRelocation``` function in **lld/ELF/Relocation.cpp** (you'll maybe need to add something target specific to this function, if you are adding a new machine target). Here is one snippet of the code:
+In lld there is a couple of ways to achieve this. The first one is by using relocation expressions (custom or already present ones). An example of these kind of relaxations would be relaxations of **TLS** [[7]](#useful-links-and-sources) access models. Shortly, **TLS** has several access models, **General Dynamic**, **Local Dynamic**, **Initial Executable** and **Local Executable**, where **Global Dynamic** is the least optimized one and the **Local Executable** is the most optimized one. **lld** itself can already determine whether access models can be relaxed in the ```handleTlsRelocation``` function in **lld/ELF/Relocation.cpp** (you'll maybe need to add something target specific to this function, if you are adding a new machine target). Here is one snippet of the code:
 
 <div align="center">
   <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/handle-gd-tls-relocation.png?raw=true">
@@ -238,7 +238,7 @@ This relaxer is used during resolving relocations to try to relax some sequences
 
 If it is not possible to relax given instructions, then we normally resolve the relocation.
 
-The last relaxation method that I'll describe (and which **nanoMIPS** uses) is by implementing ```TargetInfo```'s ```relaxOnce``` function. It was initially used by the **RISC-V** architecture. It needs to be noted that, by the current implementation, target may not need "thunks" and perform relaxations this way ("thunks" are small pieces of code inserted by the linker to extend the range of jump/branch instructions). The function itself is called during finalizing of sections (which is prior to resolving relocations) in ```finalizeAddressDependentContent``` of the **lld/ELF/Writer.cpp** file:
+The last relaxation method that I'll describe (and which **nanoMIPS** uses) is by implementing ```TargetInfo```'s ```relaxOnce``` function. It was initially used by the **RISC-V** [[8]](#useful-links-and-sources) architecture. It needs to be noted that, by the current implementation, target may not need "thunks" and perform relaxations this way ("thunks" are small pieces of code inserted by the linker to extend the range of jump/branch instructions). The function itself is called during finalizing of sections (which is prior to resolving relocations) in ```finalizeAddressDependentContent``` of the **lld/ELF/Writer.cpp** file:
 
 <div align="center">
   <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/finalize-address-relax-once.png?raw=true">
@@ -356,7 +356,7 @@ What is interesting here, is that it might be possible to cut a **nop32** instru
 
 ## Testing
 
-Every tool in the **llvm** system uses the **lit** testing infrastructure, so does **lld**. So, the best way to test your architecture is to write regression tests in the **llvm** infrastructure and as you update your work check if anything has gone wrong. Tests are located in **lld/test/ELF** directory.
+Every tool in the **llvm** system uses the **lit** testing infrastructure, so does **lld**. So, the best way to test your architecture is to write regression tests in the **llvm** infrastructure and as you update your work check if anything has gone wrong. Tests are located in **lld/test/ELF** directory. [[9]](#useful-links-and-sources)[[10]](#useful-links-and-sources)
 
 ## Conclusion
 
@@ -369,13 +369,12 @@ In this article, we've first covered basics of the **lld ELF** linker. Then we s
 2. [The ELF, COFF and Wasm Linkers](https://lld.llvm.org/NewLLD.html)
 3. [The LLVM Compiler Infrastructure](https://llvm.org/)
 4. [Getting Started with the LLVM System](https://llvm.org/docs/GettingStarted.html)
-5. [LLVM Testing Infrastructure Guide](https://llvm.org/docs/TestingGuide.html)
-6. [lit - LLVM Integrated Tester](https://llvm.org/docs/CommandGuide/lit.html)
-7. [llvm-project](https://github.com/llvm/llvm-project)
-8. [llvm-16 with nanoMIPS target implementation in lld](https://github.com/AndrijaSyrmia/llvm-project/tree/nanomips-lld-16-new-relaxations)
-9. [RISC-V linker relaxation in lld](https://maskray.me/blog/2022-07-10-riscv-linker-relaxation-in-lld)
-10. [Thread-Local Storage Access Models](https://docs.oracle.com/cd/E19683-01/817-3677/chapter8-20/index.html)
-
+5. [llvm-project](https://github.com/llvm/llvm-project)
+6. [llvm-16 with nanoMIPS target implementation in lld](https://github.com/AndrijaSyrmia/llvm-project/tree/nanomips-lld-16-new-relaxations)
+7. [Thread-Local Storage Access Models](https://docs.oracle.com/cd/E19683-01/817-3677/chapter8-20/index.html)
+8. [RISC-V linker relaxation in lld](https://maskray.me/blog/2022-07-10-riscv-linker-relaxation-in-lld)
+9. [LLVM Testing Infrastructure Guide](https://llvm.org/docs/TestingGuide.html)
+10. [lit - LLVM Integrated Tester](https://llvm.org/docs/CommandGuide/lit.html)
 
 ## Requirements
 
