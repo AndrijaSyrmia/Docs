@@ -1,3 +1,18 @@
+## Table of content
+
+- [Adding a new ELF Machine Target to LLD](#adding-a-new-elf-machine-target-to-lld)
+  - [Why LLD](#why-lld)
+  - [Useful structures in LLD](#useful-structures-in-lld)
+  - [LLD linking steps](#lld-linking-steps)
+  - [Adding a new ELF Machine Target](#adding-a-new-elf-machine-target)
+  - [nanoMIPS target specific features](#nanomips-target-specific-features)
+  - [Linker relaxations](#linker-relaxations)
+  - [nanoMIPS linker transformations](#nanomips-linker-transformations)
+  - [Testing](#testing)
+  - [Conclusion](#conclusion)
+  - [Useful links and sources](#useful-links-and-sources)
+  - [Requirements](#requirements)
+
 # Adding a new ELF Machine Target to LLD
 
 In this blog we'll cover a method to add new **ELF Machine Targets** to **lld**, then we'll talk about implementing target specific relaxations (or transformations). Throughout the blog the implementation of **nanoMIPS** target will be showcased as well.
