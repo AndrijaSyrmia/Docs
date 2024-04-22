@@ -19,13 +19,13 @@ In this blog we'll cover a method to add new **ELF Machine Targets** to **lld**,
 
 ## Why LLD
 
-So the first question that comes to me, is why should we use lld when we have gnu linkers (bfd and gold) that are working fine. What people like to emphasize the most is lld's speed. On average lld runs twice as fast as the GNU gold linker, but it tends to use more memory. It is small, it's source code is several times smaller in term of code line count. But what I find to be most helpful for developers are more flexible data structures and algorithms then on gnu's gold linker. The code is also easier to understand then in gold, so it is easier for developers to work on it further. Lastly, it works good with clang as clang can generate bitcode object files which can be then sent to lld to perform link time optimizations on whole programs. [[1]](#useful-links-and-sources)
+So the first question that comes to me, is why should we use lld when we have gnu linkers (bfd and gold) that are working fine. What people like to emphasize the most is lld's speed. On average lld runs twice as fast as the GNU gold linker, but it tends to use more memory. It is small, it's source code is several times smaller in terms of code line count. But what I find to be most helpful for developers are more flexible data structures and algorithms then on gnu's gold linker. The code is also easier to understand then in gold, so it is easier for developers to work on it further. Lastly, it works good with clang as clang can generate bitcode object files which can be then sent to lld to perform link time optimizations on whole programs. [[1]](#useful-links-and-sources) [[2]](#useful-links-and-sources)
 
 I hope that this explains the whys behind lld's popularity.
 
 ## Useful structures in LLD
 
-In this section, I'll briefly describe structures in lld that were useful to me, when it comes to implementing a new ELF Machine Target. [[2]](#useful-links-and-sources)
+In this section, I'll briefly describe structures in lld that were useful to me, when it comes to implementing a new ELF Machine Target. [[3]](#useful-links-and-sources)
 - ```InputSection``` - represents a section from an object file or a synthetic one that should be somehow put in the output file or discarded. One can easily traverse its relocations and access its data.
 - ```OutputSection``` - represents a section in an output file containing ```InputSection```s from various sources.
 - ```Symbol``` - represents a symbol from an object file, archive or linker defined symbols.
@@ -38,10 +38,10 @@ In this section, I'll briefly describe structures in lld that were useful to me,
 
 Here, we'll quickly walk through steps of linking with **lld**. 
 1. First **lld** tries to deduce which linker should be used (**elf** linking, **coff** linking, **macho** linking or **wasm** linking), it is usually deduced by calling a specific linker instead of just **lld** (**ld.lld** is the linker for **Unix**) or by passing the -flavor option (**gnu** if the same outcome as **ld.lld** is expected).
-2. We are talking about **elf** linking from now on, so after we've determined that we want to use the **elf** linker initialization of needed structures occurs (configuration, script, context, etc.) and the ```linkerMain``` is called.
+2. We are talking about **elf** linking from now on, so after we've determined that we want to use the **elf** linker, initialization of needed structures occurs (configuration, script, context, etc.) and the ```linkerMain``` is called.
 3. In ```linkerMain``` arguments passed to the linker are parsed, and most commonly somehow remembered in the ```Config``` structure. Also, linker tries to find all the needed files, libraries and creates their structures before ```link``` is called.
 4. After processing some specific arguments (if passed), files and libraries passed to the linker are parsed, creating needed ```InputSection```s and filling the symbol table in ```parseFile``` and ```initSectionsAndLocalSyms```. When parsing is completed for all the files, then we check for duplicate symbols in the ```postParseObjectFile``` function. After no new symbols are there to be added (except of some synthetic ones), some target dependent properties are set, such as ```eflags```, ```maxPageSize```, etc. Then, sections are copied into partitions (those that we want in the output file) and synthetic sections are created. Next, the linker script is read for section commands and through ```finalizeInputSections``` function of ```OutputSection``` ```InputSection```s are added to the corresponding ```OutputSection```s. Finally ```writeResult``` is called.
-5. ```writeResult``` runs the ```Writer```. Firstly, ```finalizeSection``` is invoked. This function scans relocations, adds symbols to the final symbol table, creates a list of ```OutputSection```s, finalizes synthetic sections, assigns final value to some address dependent symbols, changes data in some sections (relaxations, thunks) and fills out section headers. At the end ```writeHeaders``` and ```writeSections``` take place and write the program to the output file, resolving relocations also happens here.
+5. ```writeResult``` runs the ```Writer```. Firstly, ```finalizeSections``` is invoked. This function scans relocations, adds symbols to the final symbol table, creates a list of ```OutputSection```s, finalizes synthetic sections, assigns final value to some address dependent symbols, changes data in some sections (**relaxations**, **thunks**) and fills out section headers. At the end ```writeHeaders``` and ```writeSections``` take place and write the program to the output file, resolving relocations also happens in this phase.
 
 ## Adding a new ELF Machine Target
 
@@ -56,7 +56,7 @@ But before implementing the aforementioned class, we should probably define targ
 </div>
 <br />
 
-These are only some of relocations from **RISC**-V, but you can see the point. Include this file in **llvm/include/llvm/BinaryFormat/ELF.h** in an unnamed enum, after the definition of **ELF_RELOC**, but before it is undefined. After this, you have an enum with all your target's reloc types. Here, you can also put processor specific flags. Example (**RISCV**):
+These are only some of relocations from **RISC-V**, but you can see the point. Include this file in **llvm/include/llvm/BinaryFormat/ELF.h** in an unnamed enum, after the definition of **ELF_RELOC**, but before it is undefined. After this, you have an enum with all your target's reloc types. Here, you can also put processor specific flags. Example (**RISCV**):
 
 <div align="center">
   <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/e-flags-riscv.png?raw=true">
@@ -130,7 +130,7 @@ But not too fast, this isn't the end. Every architecture has specific behaviours
 
 ## nanoMIPS target specific features
 
-After implementing the basic ```TargetInfo``` derivation class, we need to see what target specific actions our linker needs. To demonstrate some of them, I'll present what was needed for nanoMIPS architecture beyond the ```getRelExpr``` and ```relocate``` functions. Of course other architectures will differ. Analyzing lld code is a good way of finding out what should be done differently for each architecture, alongside reading the documentation for the architecture itself and see if it is somehow implemented in lld.
+After implementing the basic ```TargetInfo``` derivation class, we need to see what target specific actions our linker needs. To demonstrate some of them, I'll present what was needed for **nanoMIPS** architecture beyond the ```getRelExpr``` and ```relocate``` functions. Of course, other architectures will differ. Analyzing lld code is a good way of finding out what should be done differently for each architecture, alongside reading the documentation for the architecture itself and see if it is somehow implemented in lld.
 
 As **MIPS** architecture **nanoMIPS** also uses a **gp** register, which is used to access constants, global variables as well as **got** table. The program itself, at first doesn't know where should **gp** point to, so it is left to the linker and the linker script to put it on the appropriate address using **_gp** symbol. The symbol is defined in ```addReservedSymbols``` function in **lld/ELF/Writer.cpp**:
 
@@ -189,7 +189,7 @@ Just like **MIPS ABI** flags section, the **nanoMIPS** variant is implemented as
 </div>
 <br />
 
-First of all, ```Elf_NanoMips_ABIFlags``` is just a struct representing the structure of the **ABI** flags section for **nanoMIPS**. The most important function here is ```create``` and it is invoked by ```get``` if the **ABI** flags section hasn't been created yet. What ```create``` actually does is just iterate through all **nanoMIPS.abiflags** ```InputSection```s that are found during linking of the program and try to synthesize a global **nanoMIPS.abiflags** section that will be put in the output file. ```InputSection```s that are used are marked dead as we no longer need them and they won't influence the output program anymore. What it also does, if an object file doesn't have a **nanoMIPS.abiflags** section, is that it makes it from the **e_flags** of the object file header, and uses those information to merge with others. 
+First of all, ```Elf_NanoMips_ABIFlags``` is just a struct representing the structure of the **ABI** flags section for **nanoMIPS** [[8]](#useful-links-and-sources). The most important function here is ```create``` and it is invoked by ```get``` if the **ABI** flags section hasn't been created yet. What ```create``` actually does is just iterate through all **nanoMIPS.abiflags** ```InputSection```s that are found during linking of the program and try to synthesize a global **nanoMIPS.abiflags** section that will be put in the output file. ```InputSection```s that are used are marked dead as we no longer need them and they won't influence the output program anymore. What it also does, if an object file doesn't have a **nanoMIPS.abiflags** section, is that it makes it from the **e_flags** of the object file header, and uses those information to merge with others. 
 
 To add this new ```SyntheticSection``` to the whole linking process we insert this code to ```createSyntheticSections``` in **lld/ELF/Writer.cpp**:
 
@@ -206,30 +206,30 @@ There is one more specific feature that is not mentioned here, ```calcEFlags```,
 
 Just like there is a bunch of various compiler optimizations, so there are some linker ones. One of these optimizations are called relaxations. Their goal is to scan the output program and see if some instructions can be compacted (e.g. 32bit instruction to 16bit one), or if some instruction groups can be replaced by other shorter and/or faster groups (e.g. load the highest 20 bits, then add the lowest 12, can be replaced by just loading the whole value if the proper conditions are met). This cannot be done during compilation, as the compiler doesn't know the layout of the program, nor it knows what are the values of all the symbols and where they originate from.
 
-In lld there is a couple of ways to achieve this. The first one is by using relocation expressions (custom or already present ones). An example of these kind of relaxations would be relaxations of **TLS** [[7]](#useful-links-and-sources) access models. Shortly, **TLS** has several access models, **General Dynamic**, **Local Dynamic**, **Initial Executable** and **Local Executable**, where **Global Dynamic** is the least optimized one and the **Local Executable** is the most optimized one. **lld** itself can already determine whether access models can be relaxed in the ```handleTlsRelocation``` function in **lld/ELF/Relocation.cpp** (you'll maybe need to add something target specific to this function, if you are adding a new machine target). Here is one snippet of the code:
+In lld there is a couple of ways to achieve this. The first one is by using relocation expressions (custom or already present ones). An example of these kind of relaxations would be relaxations of **TLS** [[9]](#useful-links-and-sources) access models. Shortly, **TLS** has several access models, **General Dynamic**, **Local Dynamic**, **Initial Executable** and **Local Executable**, where **Global Dynamic** is the least optimized one and the **Local Executable** is the most optimized one. **lld** itself can already determine whether access models can be relaxed in the ```handleTlsRelocation``` function in **lld/ELF/Relocation.cpp** (you'll maybe need to add something target specific to this function, if you are adding a new machine target). Here is one snippet of the code:
 
 <div align="center">
   <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/handle-gd-tls-relocation.png?raw=true">
 </div>
 <br />
 
-You can see here, that we add relocations with relax expressions if possible, that are later processed in ```relocateAlloc``` function. Example (AArch64):
+You can see here, that we add relocations with relax expressions if possible, that are later processed in ```relocateAlloc``` function. Example (**AArch64**):
 
 <div align="center">
   <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/relax-tls-relocate-alloc-aarch64.png?raw=true">
 </div>
 <br />
 
-Basically, what these ```relaxTls*``` functions do, is just rewrite instructions to the relaxed version.
+Basically, what these ```relaxTls*``` functions do, is just rewrite instructions to their relaxed version.
 
-Another way to relax is to implement a custom relaxer that will do the transformations. Example (Aarch64):
+Another way to relax is to implement a custom relaxer that will do the transformations. Example (**Aarch64**):
 
 <div align="center">
   <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/aarch64-relaxer.png?raw=true">
 </div>
 <br />
 
-This relaxer is used during resolving relocations to try to relax some sequences of instructions. It checks if all the information in associated relocations are valid, and relaxes if the value to be relocated fits the given range. As it is used during resolving of the relocations, it is also used in ```relocateAlloc```:
+This relaxer is used during resolving relocations to try to relax some sequences of instructions. It checks if all the information in associated relocations are valid, and relaxes if the value to be relocated fits the given range. As it is used during resolving of the relocations, it is placed in ```relocateAlloc```:
 
 <div align="center">
   <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/aarch64-relaxer-usage.png?raw=true">
@@ -238,7 +238,7 @@ This relaxer is used during resolving relocations to try to relax some sequences
 
 If it is not possible to relax given instructions, then we normally resolve the relocation.
 
-The last relaxation method that I'll describe (and which **nanoMIPS** uses) is by implementing ```TargetInfo```'s ```relaxOnce``` function. It was initially used by the **RISC-V** [[8]](#useful-links-and-sources) architecture. It needs to be noted that, by the current implementation, target may not need "thunks" and perform relaxations this way ("thunks" are small pieces of code inserted by the linker to extend the range of jump/branch instructions). The function itself is called during finalizing of sections (which is prior to resolving relocations) in ```finalizeAddressDependentContent``` of the **lld/ELF/Writer.cpp** file:
+The last relaxation method that I'll describe (and which **nanoMIPS** uses) is by implementing ```TargetInfo```'s ```relaxOnce``` function. It was initially used by the **RISC-V** [10]](#useful-links-and-sources) architecture. It needs to be noted that, by the current implementation, target may not need "thunks" and perform relaxations this way ("thunks" are small pieces of code inserted by the linker to extend the range of jump/branch instructions). The function itself is called during finalizing of sections (which is prior to resolving relocations) in ```finalizeAddressDependentContent``` of the **lld/ELF/Writer.cpp** file:
 
 <div align="center">
   <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/finalize-address-relax-once.png?raw=true">
@@ -282,14 +282,14 @@ We start by checking some specific relocations:
 </div>
 <br />
 
-The logic for the first two specific relocations is simple, if we run to **R_NANOMIPS_NORELAX** we shouldn't transform relocations after this one unless we run to **R_NANOMIPS_RELAX** which permits transformation of relocations after it. One more special **R_NANOMIPS_ALIGN**, it requires different logic than the normal transformations. We'll go back to ```align``` afterwards. 
+The logic for the first two specific relocations is simple, if we run to **R_NANOMIPS_NORELAX** we shouldn't transform relocations after this one unless we run to **R_NANOMIPS_RELAX** which permits transformation of relocations after it. One more special relocation is **R_NANOMIPS_ALIGN**, it requires different logic than the normal transformations. We'll go back to ```align``` afterwards. 
 
 <div align="center">
   <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/transform-reloc-property-nanomips.png?raw=true">
 </div>
 <br />
 
-Later on we calculate the value we are relocating, as well as the ```NanoMipsRelocProperty``` for this relocation. ```NanoMipsRelocProperty``` contains size of the instruction types that it is referring to, as well as the mask of those types. ```NanoMipsRelocPropertyTable``` is created with **table gen** in **lld/ELF/Arch/NanoMipsRelocProperty.td** which uses **llvm/utils/TableGen/RelocInsPropertyEmitter.cpp** (a custom table gen backend to emit these properties) to do so. Other structures such as ```NanoMipsInsProperty```, ```NanoMipsTransformTemplate``` and ```NanoMipsInsTemplate``` use the same **table gen** file.
+Later on we calculate the value we are relocating, as well as the ```NanoMipsRelocProperty``` for this relocation. ```NanoMipsRelocProperty``` contains size of the instruction types that it is referring to, as well as the bit mask of those types. ```NanoMipsRelocPropertyTable``` is created with **table gen** in **lld/ELF/Arch/NanoMipsRelocProperty.td** which uses **llvm/utils/TableGen/RelocInsPropertyEmitter.cpp** (a custom table gen backend to emit these properties) to do so. Other structures such as ```NanoMipsInsProperty```, ```NanoMipsTransformTemplate``` and ```NanoMipsInsTemplate``` use the same **table gen** file.
 
 Once we've seen that there are transformations for the current relocation, we need to check if there are transformations for the relocation and the instruction it refers to, thus come next steps:
 
@@ -298,7 +298,7 @@ Once we've seen that there are transformations for the current relocation, we ne
 </div>
 <br />
 
-Here, we read the instruction from the section, and check if there is a ```NanoMipsInsProperty``` for the calculated instruction mask and relocation. If there is we may continue with our transformation. ```NanoMipsInsProperty``` object contains the transformations available for this instruction, as well as helper functions to validate, convert and get registers from the instruction, which are needed during transformations to check and insert new instructions. Later we check if the length of the instrucion is forced, if so we cannot do transformations with it. The length is forced if there is one of these relocations attached to the instruction: **R_NANOMIPS_FIXED**, **R_NANOMIPS_INSN32** or **R_NANOMIPS_INSN16**.
+Here, we read the instruction from the section, and check if there is a ```NanoMipsInsProperty``` for the calculated instruction mask and relocation. If there is we may continue with our transformation. ```NanoMipsInsProperty``` object contains the transformations available for this instruction, as well as helper functions to validate, convert and get registers from the instruction, which are needed during transformations to check and insert new instructions. Later, we check if the length of the instrucion is forced, if so we cannot do transformations with it. The length is forced if there is one of these relocations attached to the instruction: **R_NANOMIPS_FIXED**, **R_NANOMIPS_INSN32** or **R_NANOMIPS_INSN16**.
 
 Further down the transform function, we get the desired transformation (relaxation or expansion):
 
@@ -307,7 +307,7 @@ Further down the transform function, we get the desired transformation (relaxati
 </div>
 <br />
 
-We get the template for the transformation via ```getTransformTemplate``` method. This method checks the relocation, instruction and the value for relocation, alongside some program parameters (e.g. whether we are making a **pcrel** output program) and tries to find the appropriate transformation if possible (**relaxations**) or needed (**expansions**). **NanoMipsTransformationTemplate** contains instruction or instructions needed for the transformation, as well as relocations that go with those instructions (if there is no relocation necessary, **R_NANOMIPS_NONE** is put in this structure).
+We get the template for the transformation via ```getTransformTemplate``` method. This method checks the relocation, instruction and the value for relocation, alongside some program parameters (e.g. whether we are making a **pcrel** output program) and tries to find the appropriate transformation if possible (**relaxations**) or needed (**expansions**). ```NanoMipsTransformTemplate``` contains instructions needed for the transformation, as well as relocations that go with those instructions (if there is no relocation necessary, **R_NANOMIPS_NONE** is put in this structure).
 
 Finally, if we have the desired transformation, we make changes to the section content:
 
@@ -316,7 +316,7 @@ Finally, if we have the desired transformation, we make changes to the section c
 </div>
 <br />
 
-Firs, we change the section size to fit new instructions via ```updateSectionContent```. This function also updates relocation offsets, and symbol values and sizes that should be changed. Later we call the ```transform``` method of the ```currentTransformation``` so we can get the instructions we need to write. Instructions are created from the ```NanoMipsTransformTemplate```'s instructions, ```NanoMipsInsProperty```'s functions for extracting and converting registers currently present in that instruction and ```Relocation```'s type. We also, add and change relocations of the processed input section here, to match the new instructions. At the end, we get and write newly generated instructions to the section.
+Firstly, we change the section size to fit new instructions via ```updateSectionContent```. This function also updates relocation offsets, and symbol values and sizes that should be changed. After this, we call the ```transform``` method of the ```currentTransformation``` so we can get the instructions we need to write. Instructions are created from the ```NanoMipsTransformTemplate```'s instructions, ```NanoMipsInsProperty```'s functions for extracting and converting registers currently present in that instruction and ```Relocation```'s type. We also, add and change relocations of the processed input section here, to match the new instructions. At the end, we get and write newly generated instructions to the section.
 
 Now when we know how transformations are done, we go back to the aligning:
 
@@ -356,25 +356,27 @@ What is interesting here, is that it might be possible to cut a **nop32** instru
 
 ## Testing
 
-Every tool in the **llvm** system uses the **lit** testing infrastructure, so does **lld**. So, the best way to test your architecture is to write regression tests in the **llvm** infrastructure and as you update your work check if anything has gone wrong. Tests are located in **lld/test/ELF** directory. [[9]](#useful-links-and-sources)[[10]](#useful-links-and-sources)
+Every tool in the **llvm** system uses the **lit** testing infrastructure, so does **lld**. The best way to test your architecture is to write regression tests in the **llvm** infrastructure and as you update your work check if anything has gone wrong. Tests are located in **lld/test/ELF** directory. [[11]](#useful-links-and-sources)[[12]](#useful-links-and-sources)
 
 ## Conclusion
 
-In this article, we've first covered basics of the **lld ELF** linker. Then we saw how to implement a new machine target in this linker, what classes need to be implemented with their abstract functions. Later on, we listed some target specific features for **nanoMIPS**, as during implementation of any new machine target we'll definitely have to implement many target specific content. Finally, we dug into the linker relaxations, visiting a few ways to do them in **lld**, as well as explained **nanoMIPS** linker transformations. 
+In this article, we've first covered basics of the **lld ELF** linker. Then we saw how to implement a new machine target in this linker, what classes need to be implemented with their abstract functions. Later on, we listed some target specific content for **nanoMIPS**, as during implementation of any new machine target we'll definitely have to implement many target specific features. Finally, we dug into the linker relaxations, visiting a few ways to do them in **lld**, as well as explained **nanoMIPS** linker transformations. 
 
 
 ## Useful links and sources
 
 1. [LLD - The LLVM Linker](https://lld.llvm.org/)
-2. [The ELF, COFF and Wasm Linkers](https://lld.llvm.org/NewLLD.html)
-3. [The LLVM Compiler Infrastructure](https://llvm.org/)
-4. [Getting Started with the LLVM System](https://llvm.org/docs/GettingStarted.html)
-5. [llvm-project](https://github.com/llvm/llvm-project)
-6. [llvm-16 with nanoMIPS target implementation in lld](https://github.com/AndrijaSyrmia/llvm-project/tree/nanomips-lld-16-new-relaxations)
-7. [Thread-Local Storage Access Models](https://docs.oracle.com/cd/E19683-01/817-3677/chapter8-20/index.html)
-8. [RISC-V linker relaxation in lld](https://maskray.me/blog/2022-07-10-riscv-linker-relaxation-in-lld)
-9. [LLVM Testing Infrastructure Guide](https://llvm.org/docs/TestingGuide.html)
-10. [lit - LLVM Integrated Tester](https://llvm.org/docs/CommandGuide/lit.html)
+2. [LLVM Link Time Optimization: Design and Implementation](https://llvm.org/docs/LinkTimeOptimization.html)
+3. [The ELF, COFF and Wasm Linkers](https://lld.llvm.org/NewLLD.html)
+4. [The LLVM Compiler Infrastructure](https://llvm.org/)
+5. [Getting Started with the LLVM System](https://llvm.org/docs/GettingStarted.html)
+6. [llvm-project](https://github.com/llvm/llvm-project)
+7. [llvm-16 with nanoMIPS target implementation in lld](https://github.com/AndrijaSyrmia/llvm-project/tree/nanomips-lld-16-new-relaxations)
+8. [ELF ABI Supplement for nanoMIPS](http://codescape.mips.com/components/toolchain/nanomips/2019.03-01/docs/MIPS_nanoMIPS_ABI_supplement_01_03_DN00179.pdf)
+9. [Thread-Local Storage Access Models](https://docs.oracle.com/cd/E19683-01/817-3677/chapter8-20/index.html)
+10. [RISC-V linker relaxation in lld](https://maskray.me/blog/2022-07-10-riscv-linker-relaxation-in-lld)
+11. [LLVM Testing Infrastructure Guide](https://llvm.org/docs/TestingGuide.html)
+12. [lit - LLVM Integrated Tester](https://llvm.org/docs/CommandGuide/lit.html)
 
 ## Requirements
 
