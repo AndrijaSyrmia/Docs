@@ -15,7 +15,7 @@
 
 # Adding a new ELF Machine Target to LLD
 
-In this blog we'll cover a method to add new **ELF Machine Targets** to **lld**, then we'll talk about implementing target specific relaxations (or transformations). Throughout the blog the implementation of **nanoMIPS** target will be showcased as well.
+In this blog we'll cover a method to add new **ELF Machine Targets** to **lld**, then we'll talk about implementing target specific relaxations (or transformations). Throughout the blog the implementation of **nanoMIPS** target will be showcased as well. The examples shown are done on llvm-16 (lld-16).
 
 ## Why LLD
 
@@ -121,7 +121,7 @@ After this class is implemented, all we need to do is add it to  **lld/ELF/CMake
 <br />
 
 Then we can make our new lld that supports a new architecture for example like this (if in directory of llvm):
-  - ```cmake -G "Ninja" -DLLVM_ENABLE_PROJECTS="lld;" -B build ./llvm -DCMAKE_BUILD_TYPE=Debug```
+  - ```cmake -G "Ninja" -DLLVM_ENABLE_PROJECTS="lld;" -B build ./llvm```
   - ```ninja -C build```
 
 And if no errors occur, you have built your linker.
@@ -169,16 +169,16 @@ Where ```getNanoMipsPage``` just extracts the upper 20 bits of the value it is p
 </div>
 <br />
 
-Later on in ```getRelocTargetVA``` function its calculation is basically the result of the subtraction of **gp** from the relocation symbol value. The most interesting one, the **R_NANOMIPS_NEG_COMPOSITE**, is consisted of either 2 or 3 relocations in a row so its relocation must be done differently. The first relocation must be of type **R_NANOMIPS_NEG**, the next can be  **R_NANOMIPS_ASHIFTR_1** and the last one is usually some absolute relocation. **R_NANOMIPS_NEG_COMPOSITE** in ```getRelocTargetVA``` just returns the negative symbol value added with negative addend, but the logic for relocate is now different:
+Later on in ```getRelocTargetVA``` function its calculation is basically the result of the subtraction of **gp** from the relocation symbol value. The most interesting one, the **R_NANOMIPS_NEG_COMPOSITE**, is consisted of multiple relocations in a row so its relocation must be done differently. The first relocation must be of type **R_NANOMIPS_NEG**, the next ones are usually absolute relocations. **R_NANOMIPS_NEG_COMPOSITE** in ```getRelocTargetVA``` just returns the negative symbol value added with negative addend, but the logic for relocate is now different:
 
 <div align="center">
-  <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/relocate-alloc-nanomips3.png?raw=true">
+  <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/relocate-alloc-composite.png?raw=true">
 </div>
 <br />
 
 Also, because of this relocation, we have overriden ```TargetInfo```'s ```relocateAlloc``` function.
 
-Here you can see that relocation of **R_NANOMIPS_NEG_COMPOSITE** expression is different than other expressions, and it calls a special function called ```getNanoMipsNegCompositeRelDataAlloc```, which calculates the value we need to relocate, and later we call the target's ```relocate``` function as we would do in normal circumstances. It should be also noted that the iteration through relocations has been changed in the for loop to using the iterator, so that ```getNanoMipsNegCompositeRelDataAlloc``` can update it. It needs to update it because multiple relocations are processing the needed value and handling them one by one wouldn't be correct, so we need to skip them.
+Here you can see that relocation of **R_NANOMIPS_NEG_COMPOSITE** (it is the main composite relocation) expression is different than other expressions. It calculates the value of all relocations that are on the same section offset and combines them to one value (**R_NANOMIPS_NEG_COMPOSITE** is usually used for expressions like ```a - b``` or even ```a - b << 1```).
 
 The last target specific feature of **nanoMIPS** that I'll describe is the **ABI** flags section. Named **.nanoMIPS.abiflags** the section is very similar to **.MIPS.abiflags** (structure is the same, but some extension flags differ). This section is unique for the final program and it is used to provide the information to the program loader so it can determine what are the requirements of the application (e.g. hard or soft floating point calculation). The information that is written to it is collected from all the object files that contribute to the final program, as they also have their own **ABI** flags section, which describe the object file's requirements.
 
@@ -238,7 +238,7 @@ This relaxer is used during resolving relocations to try to relax some sequences
 
 If it is not possible to relax given instructions, then we normally resolve the relocation.
 
-The last relaxation method that I'll describe (and which **nanoMIPS** uses) is by implementing ```TargetInfo```'s ```relaxOnce``` function. It was initially used by the **RISC-V** [10]](#useful-links-and-sources) architecture. It needs to be noted that, by the current implementation, target may not need "thunks" and perform relaxations this way ("thunks" are small pieces of code inserted by the linker to extend the range of jump/branch instructions). The function itself is called during finalizing of sections (which is prior to resolving relocations) in ```finalizeAddressDependentContent``` of the **lld/ELF/Writer.cpp** file:
+The last relaxation method that I'll describe (and which **nanoMIPS** uses) is by implementing ```TargetInfo```'s ```relaxOnce``` function. It was initially used by the **RISC-V** [[10]](#useful-links-and-sources) architecture. It needs to be noted that, by the current implementation, target may not need "thunks" and perform relaxations this way ("thunks" are small pieces of code inserted by the linker to extend the range of jump/branch instructions). The function itself is called during finalizing of sections (which is prior to resolving relocations) in ```finalizeAddressDependentContent``` of the **lld/ELF/Writer.cpp** file:
 
 <div align="center">
   <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/finalize-address-relax-once.png?raw=true">
