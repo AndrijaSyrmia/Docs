@@ -1,8 +1,10 @@
-# How to build gold linker for nanoMIPS architecture
-
 ## Table of content
+- [How to build gold linker for nanoMIPS architecture](#how-to-build-gold-linker-for-nanomips-architecture)
+  - [Getting the source](#getting-the-source)
+  - [Building the nanoMIPS gold linker](#building-the-nanomips-gold-linker)
+    - [In place](#in-place)
 
-
+# How to build gold linker for nanoMIPS architecture
 
 ## Getting the source
 
@@ -13,7 +15,7 @@ The source code of gold for nanoMIPS is located on https://github.com/MediaTek-L
 
 ## Building the nanoMIPS gold linker
 
-### In place:
+### In place
 
 First we must build an assembler to build a linker:
 
