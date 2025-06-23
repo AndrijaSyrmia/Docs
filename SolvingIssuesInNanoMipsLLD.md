@@ -5,6 +5,9 @@
     - [Solution](#solution)
     - [New problem](#new-problem)
     - [Solution for the new problem](#solution-for-the-new-problem)
+  - [Composite relocation problem when rebasing from lld16 to lld20](#composite-relocation-problem-when-rebasing-from-lld16-to-lld20)
+    - [Problem](#problem-1)
+    - [Solution](#solution-1)
 
 # Solving issues in nanoMIPS lld
 
@@ -289,3 +292,76 @@ So this indicates to us, that there might be a problem in the constructor, which
 By just changing the positions of those two arguments, we get the proper behaviour (simple solution, and it could've been way easier to solve this, but here were the steps). Later on we check this with testing the regression tests again, and see that we have truly fixed this issue.
 
 That's all for this issue.
+
+## Composite relocation problem when rebasing from lld16 to lld20
+
+Similar to abiflags, this is also one of the issues encountered during rebasing. So the *nanomips-composite.s* test is failing, let's see why. This example is going to be shorter, as the first one was a bit longer.
+
+### Problem
+
+<div align="center">
+  <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/solving-issues-in-nanomips-lld/composite-test-fail-output.png?raw=true" />
+</div>
+<br />
+
+And let's see the source of test as well:
+
+<div align="center">
+  <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/solving-issues-in-nanomips-lld/composite-test.png?raw=true" />
+</div>
+<br />
+
+So for some reason the debug section relocation failed, while the data section one didn't. This indicates that the problem most probably arises from relocating to debug sections. We are going to run this manually to see what is the value we get.
+
+### Solution
+
+<div align="center">
+  <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/solving-issues-in-nanomips-lld/composite-objdump-out.png?raw=true" />
+</div>
+<br />
+
+Okay so we get zero instead of one here. The first suspect is to check where these relocations are resolved. There are two types of relocating in lld, the relocation of sections that are supposed to be allocated, and the ones that are not. The functions that do this are ```relocateAlloc``` and ```relocateNonAlloc```. As debug (all sections that start with ".debug" substring are considered debug sections) sections are not supposed to be allocated, the ```relocateNonAlloc``` is the place to look for potential errors.
+
+Check if this function is actually called:
+
+<div align="center">
+  <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/solving-issues-in-nanomips-lld/relocate-non-alloc-check-if-it-is-called.png?raw=true" />
+</div>
+<br />
+
+And when ran it actually is, let's try to check if good values are made during composite relocations resolution. There is a special part for this in the ```relocateNonAlloc``` so it is easy to find. We add some prints here.
+
+<div align="center">
+  <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/solving-issues-in-nanomips-lld/relocate-non-alloc-composite.png?raw=true" />
+</div>
+<br />
+
+These are the relocations for *.debug_dummy*, all three of them are on same offset so they all make up one composite relocation:
+
+<div align="center">
+  <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/solving-issues-in-nanomips-lld/dummy-composite-relocations.png?raw=true" />
+</div>
+<br />
+
+And the output of our modified linker now is:
+
+<div align="center">
+  <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/solving-issues-in-nanomips-lld/composite-val-calc-out.png?raw=true" />
+</div>
+<br />
+
+We see here that we haven't even got to the ```target.relocateNoSym``` (missing "Val to write" output), and also that we have only processed two relocations here (instead of three). So the third one (expressions 70 and 71 are **R_NANOMIPS_NEG_COMPOSITE** and **R_NANOMIPS_ASHIFTR**, and third one **R_ABS** of type **R_NANOMIPS_UNSIGNED_8**) doesn't show up here, and it should be the one that resolves this. So the resolution happens somewhere earlier.
+
+The biggest suspect here is the if block that writes tombstone values prior to the **nanoMIPS** specific if block. Let's see if we even enter here, by putting a print:
+
+<div align="center">
+  <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/solving-issues-in-nanomips-lld/tombstone-resolving.png?raw=true" />
+</div>
+<br />
+
+And it really goes in there, but why? Between lld 16 and lld 20 there has been a change of way tombstone values are calculated, all debug sections are candidates to put tombstone values inside of them, and all relocations not containing defined symbols are (the ```if (!ds ...)``` part) treated as the values that should be tombstoned. This is not a proper way to relocate a composite relocations, as these relocations may contain no defined symbols to be relocated against (the first one should always have this symbol, but the latter ones do not need it). So the solution here is to check the if statement in calculating whether we should tombstone a value:
+
+<div align="center">
+  <img src="https://github.com/AndrijaSyrmia/Docs/blob/master/assets/solving-issues-in-nanomips-lld/composite-solution.png?raw=true" />
+</div>
+<br />
